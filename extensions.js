@@ -2387,15 +2387,9 @@ export const OpenAIAssistantsV2Extension = {
     const { apiKey, assistantId, threadId, userMessage, text } = payload || {};
 
     function removeCitations(text) {
-      let parts = text.split(" ");
-      let cleanedParts = parts.filter(
-        (part) =>
-          !part.includes("【") &&
-          !part.includes("†") &&
-          !part.includes("】") &&
-          !part.match(/\[\d+:\d+\]/)
-      );
-      return cleanedParts.join(" ");
+      return text
+        .replace(/【\d+:\d+†[^】]+】/g, "")
+        .replace(/\[\d+:\d+\]/g, "");
     }
 
     const messageElement = element.closest(
@@ -2407,50 +2401,49 @@ export const OpenAIAssistantsV2Extension = {
 
     const waitingContainer = document.createElement("div");
     waitingContainer.innerHTML = `
-  <style>
-    /* Remove background for the thinking phase */
-    .vfrc-message--extension-OpenAIAssistantsV2.thinking-phase {
-      background: none !important;
-    }
-
-    .waiting-animation-container {
-      font-family: Open Sans;
-      font-size: 14px;
-      font-weight: normal;
-      line-height: 1.25;
-      color: rgb(0, 0, 0);
-      -webkit-text-fill-color: transparent;
-      animation-timeline: auto;
-      animation-range-start: normal;
-      animation-range-end: normal;
-      background: linear-gradient(
-        to right,
-        rgb(232, 232, 232) 10%,
-        rgb(153, 153, 153) 30%,
-        rgb(153, 153, 153) 50%,
-        rgb(232, 232, 232) 70%
-      )
-      0% 0% /
-        300% text;
-      animation: shimmer 6s linear infinite;
-      text-align: left;
-      margin-left: -10px;
-      margin-top: 10px;
-    }
-
-    @keyframes shimmer {
-      0% {
-        background-position: 300% 0;
+    <style>
+      /* Remove background for the thinking phase */
+      .vfrc-message--extension-OpenAIAssistantsV2.thinking-phase {
+        background: none !important;
       }
-      100% {
-        background-position: -300% 0;
+
+      .waiting-animation-container {
+        font-family: Open Sans;
+        font-size: 14px;
+        font-weight: normal;
+        line-height: 1.25;
+        color: rgb(0, 0, 0);
+        -webkit-text-fill-color: transparent;
+        animation-timeline: auto;
+        animation-range-start: normal;
+        animation-range-end: normal;
+        background: linear-gradient(
+          to right,
+          rgb(232, 232, 232) 10%,
+          rgb(153, 153, 153) 30%,
+          rgb(153, 153, 153) 50%,
+          rgb(232, 232, 232) 70%
+        )
+        0% 0% / 300% text;
+        animation: shimmer 6s linear infinite;
+        text-align: left;
+        margin-left: -10px;
+        margin-top: 10px;
       }
-    }
-  </style>
-  <div class="waiting-animation-container">
-    ${text || "Thinking..."}
-  </div>
-`;
+
+      @keyframes shimmer {
+        0% {
+          background-position: 300% 0;
+        }
+        100% {
+          background-position: -300% 0;
+        }
+      }
+    </style>
+    <div class="waiting-animation-container">
+      ${text || "Thinking..."}
+    </div>
+  `;
 
     element.appendChild(waitingContainer);
 
@@ -2471,7 +2464,12 @@ export const OpenAIAssistantsV2Extension = {
     element.appendChild(responseContainer);
 
     // Function to handle retries
-    const fetchWithRetries = async (url, options, retries = 3, delay = 1000) => {
+    const fetchWithRetries = async (
+      url,
+      options,
+      retries = 3,
+      delay = 1000
+    ) => {
       for (let attempt = 0; attempt < retries; attempt++) {
         try {
           const response = await fetch(url, options);
@@ -2494,32 +2492,38 @@ export const OpenAIAssistantsV2Extension = {
 
       if (!threadId || !threadId.match(/^thread_/)) {
         // No threadId provided, or it doesn't match 'thread_...', so create a new one
-        sseResponse = await fetchWithRetries("https://api.openai.com/v1/threads/runs", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-            "OpenAI-Beta": "assistants=v2",
-          },
-          body: JSON.stringify({
-            assistant_id: assistantId,
-            stream: true,
-            thread: {
-              messages: [{ role: "user", content: userMessage }],
+        sseResponse = await fetchWithRetries(
+          "https://api.openai.com/v1/threads/runs",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+              "OpenAI-Beta": "assistants=v2",
             },
-          }),
-        });
+            body: JSON.stringify({
+              assistant_id: assistantId,
+              stream: true,
+              thread: {
+                messages: [{ role: "user", content: userMessage }],
+              },
+            }),
+          }
+        );
       } else {
         // Existing threadId, so just continue that conversation
-        await fetchWithRetries(`https://api.openai.com/v1/threads/${threadId}/messages`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-            "OpenAI-Beta": "assistants=v2",
-          },
-          body: JSON.stringify({ role: "user", content: userMessage }),
-        });
+        await fetchWithRetries(
+          `https://api.openai.com/v1/threads/${threadId}/messages`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+              "OpenAI-Beta": "assistants=v2",
+            },
+            body: JSON.stringify({ role: "user", content: userMessage }),
+          }
+        );
 
         sseResponse = await fetchWithRetries(
           `https://api.openai.com/v1/threads/${threadId}/runs`,
@@ -2542,7 +2546,7 @@ export const OpenAIAssistantsV2Extension = {
       let partialAccumulator = "";
       let firstTextArrived = false;
 
-      // <-- ADDED CODE: We'll store the newly created thread ID here if we see it in the SSE.
+      // Store the newly created thread ID if we see it in the SSE.
       let extractedThreadId = threadId || null;
 
       while (!done) {
@@ -2573,7 +2577,7 @@ export const OpenAIAssistantsV2Extension = {
               continue;
             }
 
-            // <-- ADDED CODE: If the object is 'thread.run', capture its thread_id
+            // If the object is 'thread.run', capture its thread_id
             if (json.object === "thread.run" && json.thread_id) {
               extractedThreadId = json.thread_id;
             }
@@ -2604,15 +2608,15 @@ export const OpenAIAssistantsV2Extension = {
 
       if (!partialAccumulator) {
         removeWaitingContainer();
-        responseContainer.textContent = "Det kan jeg ikke besvare, prøv at omformuler dit spørgsmål";
+        responseContainer.textContent =
+          "Det kan jag inte besvara, försök att omformulera din fråga.";
       }
 
-      // <-- ADDED CODE: Now we pass the threadId back, along with the text response.
       window.voiceflow?.chat?.interact?.({
         type: "complete",
         payload: {
           response: partialAccumulator,
-          threadId: extractedThreadId, // new or existing threadId
+          threadId: extractedThreadId,
         },
       });
     } catch (error) {
